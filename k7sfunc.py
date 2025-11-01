@@ -2,7 +2,7 @@
 ### 文档： https://github.com/hooke007/mpv_PlayKit/wiki/3_K7sfunc
 ##################################################
 
-__version__ = "0.9.2"
+__version__ = "0.9.5"
 
 __all__ = [
 	"FMT_CHANGE", "FMT_CTRL",
@@ -447,11 +447,9 @@ def DCF(
 	ref : vs.VideoNode,
 	rad : int = 10,
 	bp : int = 5,
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
 
 	func_name = "DCF"
-	core.num_threads = vs_t
 
 	_check_plugin(func_name, "vszip")
 
@@ -489,13 +487,13 @@ def EQ(
 	bright : typing.Optional[float] = None,
 	cont : typing.Optional[float] = None,
 	coring : bool = True,
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
 
-	core.num_threads = vs_t
 	fmt_src = input.format
 	fmt_cf_in = fmt_src.color_family
 	fmt_bit_in = fmt_src.bits_per_sample
+
+	clip = input
 
 	if hue is not None or sat is not None :
 		hue = 0.0 if hue is None else hue
@@ -511,12 +509,12 @@ def EQ(
 			chroma_max = 240 << (fmt_bit_in - 8)
 		expr_u = "x {} - {} * y {} - {} * + {} + {} max {} min".format(gray, hue_cos * sat, gray, hue_sin * sat, gray, chroma_min, chroma_max)
 		expr_v = "y {} - {} * x {} - {} * - {} + {} max {} min".format(gray, hue_cos * sat, gray, hue_sin * sat, gray, chroma_min, chroma_max)
-		src_u = input.std.ShufflePlanes(planes=1, colorfamily=vs.GRAY)
-		src_v = input.std.ShufflePlanes(planes=2, colorfamily=vs.GRAY)
+		src_u = core.std.ShufflePlanes(clips=clip, planes=1, colorfamily=vs.GRAY)
+		src_v = core.std.ShufflePlanes(clips=clip, planes=2, colorfamily=vs.GRAY)
 		dst_u = core.std.Expr(clips=[src_u, src_v], expr=expr_u)
 		dst_v = core.std.Expr(clips=[src_u, src_v], expr=expr_v)
 
-		output = core.std.ShufflePlanes(clips=[input, dst_u, dst_v], planes=[0, 0, 0], colorfamily=fmt_cf_in)
+		clip = core.std.ShufflePlanes(clips=[clip, dst_u, dst_v], planes=[0, 0, 0], colorfamily=fmt_cf_in)
 
 	if bright is not None or cont is not None :
 		bright = 0.0 if bright is None else bright
@@ -531,9 +529,9 @@ def EQ(
 			val = int((i - luma_min) * cont + bright + luma_min + 0.5)
 			luma_lut.append(min(max(val, luma_min), luma_max))
 
-		output = input.std.Lut(planes=0, lut=luma_lut)
+		clip = core.std.Lut(clip=clip, planes=0, lut=luma_lut)
 
-	return output
+	return clip
 
 ##################################################
 ## 提取高频层 # helper
@@ -542,10 +540,8 @@ def EQ(
 def LAYER_HIGH(
 	input : vs.VideoNode,
 	blur_m : typing.Literal[0, 1, 2] = 2,
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
 
-	core.num_threads = vs_t
 	fmt_in = input.format.id
 
 	if fmt_in == vs.YUV444P16 :
@@ -578,10 +574,7 @@ def LINE_MASK(
 	cpu : bool = True,
 	gpu : typing.Literal[-1, 0, 1, 2] = -1,
 	plane : typing.List[int] = [0],
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
-
-	core.num_threads = vs_t
 
 	if cpu : # r13+
 		output = core.tcanny.TCanny(clip=input, sigma=1.5, t_h=8.0, t_l=1.0, mode=0, op=1, planes=plane)
@@ -596,10 +589,7 @@ def LINE_MASK(
 
 def PLANE_EXTR(
 	input : vs.VideoNode,
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
-
-	core.num_threads = vs_t
 
 	''' obs
 	output = []
@@ -619,12 +609,10 @@ def PLANE_EXTR(
 def RANGE_CHANGE(
 	input : vs.VideoNode,
 	l2f : bool = True,
-	vs_t : int = vs_thd_dft,
 ) -> vs.VideoNode :
 
-	core.num_threads = vs_t
 	fmt_in = input.format.id
-	
+
 	cut0 = input
 	if fmt_in in [vs.YUV420P8, vs.YUV422P8, vs.YUV410P8, vs.YUV411P8, vs.YUV440P8, vs.YUV444P8] :
 		lv_val_pre = 0
@@ -633,9 +621,9 @@ def RANGE_CHANGE(
 	elif fmt_in in [vs.YUV420P16, vs.YUV422P16, vs.YUV444P16] :
 		lv_val_pre = 2
 	else :
-		cut0 = core.resize.Bilinear(format=vs.YUV444P16)
+		cut0 = core.resize.Bilinear(clip=cut0, format=vs.YUV444P16)
 		lv_val_pre = 2
-	
+
 	lv_val1 = [16, 64, 4096][lv_val_pre]
 	lv_val2 = [235, 940, 60160][lv_val_pre]
 	lv_val2_alt = [240, 960, 61440][lv_val_pre]
@@ -678,6 +666,29 @@ def ONNX_ANZ(
 		#shape = input_info.shape[0]
 
 	return elem_type
+
+##################################################
+## 场景检测 # helper
+##################################################
+
+def SCENE_DETECT(
+	input : vs.VideoNode,
+	sc_mode : typing.Literal[0, 1, 2] = 1,
+	thr : float = 0.15,
+	thd1 : int = 240,
+	thd2 : int = 130,
+) -> vs.VideoNode :
+
+	if sc_mode == 0 :
+		output = input
+	elif sc_mode == 1 :
+		output = core.misc.SCDetect(clip=input, threshold=thr)
+	elif sc_mode == 2 :
+		sup = core.mv.Super(clip=input, pel=1)
+		vec = core.mv.Analyse(super=sup, isb=True)
+		output = core.mv.SCDetection(clip=input, vectors=vec, thscd1=thd1, thscd2=thd2)
+
+	return output
 
 ##################################################
 ## MOD HAvsFunc (e1fcce2b4645ed4acde9192606d00bcac1b5c9e5)
@@ -1161,14 +1172,7 @@ def RIFE_STD(
 	fmt_in = input.format.id
 	colorlv = getattr(input.get_frame(0).props, "_ColorRange", 0)
 
-	if sc_mode == 0 :
-		cut0 = input
-	elif sc_mode == 1 :
-		cut0 = core.misc.SCDetect(clip=input, threshold=0.15)
-	elif sc_mode == 2 :
-		sup = core.mv.Super(clip=input, pel=1)
-		vec = core.mv.Analyse(super=sup, isb=True)
-		cut0 = core.mv.SCDetection(clip=input, vectors=vec, thscd1=240, thscd2=130)
+	cut0 = SCENE_DETECT(input=input, sc_mode=sc_mode)
 	if model >= 63 :
 		t_tta = False
 
@@ -1265,14 +1269,7 @@ def RIFE_DML(
 	w_tmp = math.ceil(w_in / tile_size) * tile_size - w_in
 	h_tmp = math.ceil(h_in / tile_size) * tile_size - h_in
 
-	if sc_mode == 0 :
-		cut0 = input
-	elif sc_mode == 1 :
-		cut0 = core.misc.SCDetect(clip=input, threshold=0.15)
-	elif sc_mode == 2 :
-		sup = core.mv.Super(clip=input, pel=1)
-		vec = core.mv.Analyse(super=sup, isb=True)
-		cut0 = core.mv.SCDetection(clip=input, vectors=vec, thscd1=240, thscd2=130)
+	cut0 = SCENE_DETECT(input=input, sc_mode=sc_mode)
 
 	cut1 = core.resize.Bilinear(clip=cut0, format=vs.RGBS, matrix_in_s="709")
 	if ext_proc :
@@ -1397,14 +1394,7 @@ def RIFE_NV(
 	max_shapes1 = [tile_size * x for x in shape_cfg["max1"]]
 	max_shapes2 = [tile_size * x for x in shape_cfg["max2"]]
 
-	if sc_mode == 0 :
-		cut0 = input
-	elif sc_mode == 1 :
-		cut0 = core.misc.SCDetect(clip=input, threshold=0.15)
-	elif sc_mode == 2 :
-		sup = core.mv.Super(clip=input, pel=1)
-		vec = core.mv.Analyse(super=sup, isb=True)
-		cut0 = core.mv.SCDetection(clip=input, vectors=vec, thscd1=240, thscd2=130)
+	cut0 = SCENE_DETECT(input=input, sc_mode=sc_mode)
 
 	cut1 = core.resize.Bilinear(clip=cut0, format=vs.RGBH, matrix_in_s="709")
 	if ext_proc :
@@ -1903,10 +1893,10 @@ def DFTT_NV(
 
 	_check_plugin(func_name, "dfttest2_nvrtc")
 
+	dfttest2 = _check_script(func_name, "dfttest2", "0.3.3")
+
 	core.num_threads = vs_t
 	fmt_in = input.format.id
-
-	dfttest2 = _check_script(func_name, "dfttest2", "0.3.3")
 
 	if fmt_in == vs.YUV444P16 :
 		cut0 = input
@@ -2410,10 +2400,10 @@ def DEINT_EX(
 	_validate_literal(func_name, "gpu", gpu, [-1, 0, 1, 2])
 	_validate_vs_threads(func_name, vs_t)
 
+	qtgmc = _check_script(func_name, "qtgmc", "0.3.0")
+
 	core.num_threads = vs_t
 	h_in = input.height
-
-	qtgmc = _check_script(func_name, "qtgmc", "0.3.0")
 
 	if h_in % 2 != 0 :
 		input = core.std.Crop(clip=input, bottom=1)
