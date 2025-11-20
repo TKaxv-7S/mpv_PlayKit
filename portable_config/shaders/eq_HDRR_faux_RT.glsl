@@ -103,8 +103,11 @@ vec4 hook() {
 	vec3 bw = vec3(avg / coefficientSum);
 
 	vec3 obw = BlendOverlay(o.xyz, bw);
+	obw = clamp(obw, 0.0, 1.0);
 	obw = mix(max(obw, o.rgb), obw, smoothstep(y, 1.0, 1.0 - y - bw.x));
+	obw = clamp(obw, 0.0, 1.0);
 	obw = mix(min(obw, o.rgb), obw, 1.0 - smoothstep(0.0, y, bw.x - (1.0 - y)));
+	obw = clamp(obw, 0.0, 1.0);
 
 	if (SOFT == 1) {
 		o.xyz = mix(BlendSoftLight(o.xyz, obw), obw, SHIFT);
@@ -112,6 +115,7 @@ vec4 hook() {
 		o.xyz = mix(BlendLinearLight(o.xyz, obw), obw, SHIFT);
 	}
 
+	o.xyz = clamp(o.xyz, 0.0, 1.0);
 	return o;
 
 }
