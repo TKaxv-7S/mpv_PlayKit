@@ -32,8 +32,8 @@ LICENSE:
 #define FSR_FLOAT3 vec3
 #define FSR_FLOAT4 vec4
 
-FSR_FLOAT APrxLoRcpF1(FSR_FLOAT a) { return FSR_FLOAT(1.0) / a; }
-FSR_FLOAT APrxLoRsqF1(FSR_FLOAT a) { return inversesqrt(a); }
+FSR_FLOAT APrxLoRcpF1(FSR_FLOAT a) { return FSR_FLOAT(1.0) / max(a, FSR_FLOAT(1.0e-5)); }
+FSR_FLOAT APrxLoRsqF1(FSR_FLOAT a) { return inversesqrt(max(a, FSR_FLOAT(1.0e-5))); }
 FSR_FLOAT ASatF1(FSR_FLOAT a) { return clamp(a, FSR_FLOAT(0.0), FSR_FLOAT(1.0)); }
 FSR_FLOAT AMin3F1(FSR_FLOAT x, FSR_FLOAT y, FSR_FLOAT z) { return min(x, min(y, z)); }
 FSR_FLOAT AMax3F1(FSR_FLOAT x, FSR_FLOAT y, FSR_FLOAT z) { return max(x, max(y, z)); }
@@ -111,31 +111,40 @@ vec4 hook() {
 	FSR_FLOAT lD = sD.r * FSR_FLOAT(0.5) + sD.g;
 	FSR_FLOAT lE = sE.r * FSR_FLOAT(0.5) + sE.g;
 
-	FSR_FLOAT dc = lD - lC;
-	FSR_FLOAT cb = lC - lB;
-	FSR_FLOAT lenX = max(abs(dc), abs(cb));
-	lenX = APrxLoRcpF1(lenX);
-	FSR_FLOAT dirX = lD - lB;
-	lenX = ASatF1(abs(dirX) * lenX);
-	lenX *= lenX;
+	FSR_FLOAT2 dir = FSR_FLOAT2(0.0);
+	FSR_FLOAT len = FSR_FLOAT(0.0);
 
-	FSR_FLOAT ec = lE - lC;
-	FSR_FLOAT ca = lC - lA;
-	FSR_FLOAT lenY = max(abs(ec), abs(ca));
-	lenY = APrxLoRcpF1(lenY);
-	FSR_FLOAT dirY = lE - lA;
-	lenY = ASatF1(abs(dirY) * lenY);
-	FSR_FLOAT len = lenY * lenY + lenX;
-	FSR_FLOAT2 dir = FSR_FLOAT2(dirX, dirY);
+	const bool deea = (target_size.x * target_size.y > HOOKED_size.x * HOOKED_size.y * 6.25);
+	if (!deea) {
+		FSR_FLOAT dc = lD - lC;
+		FSR_FLOAT cb = lC - lB;
+		FSR_FLOAT lenX = max(abs(dc), abs(cb));
+		lenX = APrxLoRcpF1(lenX);
+		FSR_FLOAT dirX = lD - lB;
+		lenX = ASatF1(abs(dirX) * lenX);
+		lenX *= lenX;
+
+		FSR_FLOAT ec = lE - lC;
+		FSR_FLOAT ca = lC - lA;
+		FSR_FLOAT lenY = max(abs(ec), abs(ca));
+		lenY = APrxLoRcpF1(lenY);
+		FSR_FLOAT dirY = lE - lA;
+		lenY = ASatF1(abs(dirY) * lenY);
+		len = lenY * lenY + lenX;
+		dir = FSR_FLOAT2(dirX, dirY);
+	}
 
 	FSR_FLOAT2 dir2 = dir * dir;
 	FSR_FLOAT dirR = dir2.x + dir2.y;
-	if (dirR < FSR_FLOAT(1.0 / 64.0)) {
+	if (!deea && dirR < FSR_FLOAT(1.0 / 64.0)) {
 		float alpha = HOOKED_tex(HOOKED_pos).a;
 		return vec4(contrast + sC * rcpL, alpha);
 	}
 
+	bool zro = dirR < FSR_FLOAT(1.0 / 32768.0);
 	dirR = APrxLoRsqF1(dirR);
+	dirR = zro ? FSR_FLOAT(1.0) : dirR;
+	dir.x = zro ? FSR_FLOAT(1.0) : dir.x;
 	dir *= FSR_FLOAT2(dirR);
 	len = len * FSR_FLOAT(0.5);
 	len *= len;

@@ -36,8 +36,8 @@ LICENSE:
 	#define FSR_FLOAT4 vec4
 #endif
 
-FSR_FLOAT APrxLoRcpF1(FSR_FLOAT a) { return FSR_FLOAT(1.0) / a; }
-FSR_FLOAT APrxLoRsqF1(FSR_FLOAT a) { return inversesqrt(a); }
+FSR_FLOAT APrxLoRcpF1(FSR_FLOAT a) { return FSR_FLOAT(1.0) / max(a, FSR_FLOAT(1.0e-5)); }
+FSR_FLOAT APrxLoRsqF1(FSR_FLOAT a) { return inversesqrt(max(a, FSR_FLOAT(1.0e-5))); }
 FSR_FLOAT3 AMin3F3(FSR_FLOAT3 x, FSR_FLOAT3 y, FSR_FLOAT3 z) { return min(x, min(y, z)); }
 FSR_FLOAT3 AMax3F3(FSR_FLOAT3 x, FSR_FLOAT3 y, FSR_FLOAT3 z) { return max(x, max(y, z)); }
 
@@ -205,10 +205,14 @@ vec4 hook() {
 
 	FSR_FLOAT2 dir = FSR_FLOAT2(0.0);
 	FSR_FLOAT len = FSR_FLOAT(0.0);
-	FsrEasuSetF(dir, len, pp, true, false, false, false, bL, eL, fL, gL, jL);
-	FsrEasuSetF(dir, len, pp, false, true, false, false, cL, fL, gL, hL, kL);
-	FsrEasuSetF(dir, len, pp, false, false, true, false, fL, iL, jL, kL, nL);
-	FsrEasuSetF(dir, len, pp, false, false, false, true, gL, jL, kL, lL, oL);
+
+	const bool deea = (target_size.x * target_size.y > HOOKED_size.x * HOOKED_size.y * 6.25);
+	if (!deea) {
+		FsrEasuSetF(dir, len, pp, true, false, false, false, bL, eL, fL, gL, jL);
+		FsrEasuSetF(dir, len, pp, false, true, false, false, cL, fL, gL, hL, kL);
+		FsrEasuSetF(dir, len, pp, false, false, true, false, fL, iL, jL, kL, nL);
+		FsrEasuSetF(dir, len, pp, false, false, false, true, gL, jL, kL, lL, oL);
+	}
 
 	FSR_FLOAT2 dir2 = dir * dir;
 	FSR_FLOAT dirR = dir2.x + dir2.y;
